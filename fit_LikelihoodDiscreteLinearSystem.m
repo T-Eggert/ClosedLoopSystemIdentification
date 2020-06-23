@@ -13,6 +13,8 @@ function [pars,incomplete_negLogLike,aic,w_ssqerr]=fit_LikelihoodDiscreteLinearS
 %        Data.y
 %        Data.u
 %        Data.TrialType
+%        Data.error_clamp
+%        Data.n_break
 %        Data.InputType
 %        Data.signed_EDPMN
 %        Data.Vrx0;
@@ -42,18 +44,37 @@ x0=default_pars(x0);
 if size(Data.y,1)==1,
    Data.y=Data.y';
 end;
-NS=size(Data.y,2);
+[NTrials,NS]=size(Data.y);
+
 if size(Data.u,1)==1,
    Data.u=Data.u';
 end;
 NS=max([NS,size(Data.u,2)]);
+
 if size(Data.TrialType,1)==1,
    Data.TrialType=Data.TrialType';
 end;
+NS=max([NS,size(Data.TrialType,2)]);
+
+if ~isfield(Data,'error_clamp'),
+   Data.error_clamp=zeros(NTrials,1);
+end;
+if size(Data.error_clamp,1)==1,
+   Data.error_clamp=Data.error_clamp';
+end;
+NS=max([NS,size(Data.error_clamp,2)]);
+
+if ~isfield(Data,'n_break'),
+   Data.n_break=ones(NTrials,1);
+end;
+if size(Data.n_break,1)==1,
+   Data.n_break=Data.n_break';
+end;
+NS=max([NS,size(Data.n_break,2)]);
+
 if ~isfield(Data,'InputType'),
    Data.InputType=0;
 end;
-NS=max([NS,size(Data.TrialType,2)]);
 if size(Data.y,2)<NS,
    Data.y=[Data.y,repmat(Data.y(:,end),1,NS-size(Data.y,2))];
 end;
@@ -62,6 +83,12 @@ if size(Data.u,2)<NS,
 end;
 if size(Data.TrialType,2)<NS,
    Data.TrialType=[Data.TrialType,repmat(Data.TrialType(:,end),1,NS-size(Data.TrialType,2))];
+end;
+if size(Data.error_clamp,2)<NS,
+   Data.error_clamp=[Data.error_clamp,repmat(Data.error_clamp(:,end),1,NS-size(Data.error_clamp,2))];
+end;
+if size(Data.n_break,2)<NS,
+   Data.n_break=[Data.n_break,repmat(Data.n_break(:,end),1,NS-size(Data.n_break,2))];
 end;
 
 if ~isfield(Data,'signed_EDPMN'),
@@ -456,11 +483,15 @@ for data_i=1:size(opts.Data.TrialType,2),
       end;
    end;
    
+   fopts.n_break=opts.Data.n_break(:,data_i);
+   fopts.error_clamp=opts.Data.error_clamp(:,data_i);
    fopts.TrialType=opts.Data.TrialType(:,data_i);
    y_valid=opts.Data.y(:,data_i);
    u_valid=opts.Data.u(:,data_i);
    
    first_isvalid=find(~isnan(y_valid),1,'first');
+   fopts.n_break=fopts.n_break(first_isvalid:end);
+   fopts.error_clamp=fopts.error_clamp(first_isvalid:end);
    fopts.TrialType=fopts.TrialType(first_isvalid:end);
    y_valid=y_valid(first_isvalid:end);
    u_valid=u_valid(first_isvalid:end);

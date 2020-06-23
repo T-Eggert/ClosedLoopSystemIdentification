@@ -6,7 +6,7 @@
 %            Germany
 %            e-mail: eggert@lrz.uni-muenchen.de
 %
-% Library for computing the covariance matrix of the output of a closed-loop time-discrete linear system and its likelihood 
+% Library for computing the covariance matrix of the output of a closed-loop time-discrete linear system and its likelihood
 function dls_lib=DiscreteLinearSystem_lib()
 
 % [x_sim,y_sim]=sim_noisy_system(A,B,C,inp,x0,V0,Vx,cva_rx,Vy,cva_ry,VyEC,Nsim,opts)
@@ -34,16 +34,16 @@ function [x_sim,y_sim]=sim_noisy_system(A,B,C,inp,x0,V0,Vx,cva_rx,Vy,cva_ry,VyEC
 %x_sim=sim_noisy_system(A,B,C,u,x0,V0,Vx,Vy,Nsim,opts)
 %
 % For opts.InputType==0: (driven by input inp=u)
-%  closed loop trials:          x(n+1)=      A*x(n)+B*(inp(n)+vgain.CL*v)+r                        for   opts.TrialType(n)<=0
-%  error-clamp trials:          x(n+1)=(A+B*C)*x(n)+B*(error_clamp(k,:)'+vgain.EC*v)+r             for 0<opts.TrialType(n)<=1
-%  set break after closed loop: x(n+1)=Abreak*(       A*x(n)+B*(inp(n)+vgain.CL*v)+r  )            for 1<opts.TrialType(n)<=2
-%  set break after error clamp: x(n+1)=Abreak*( (A+B*C)*x(n)+B*(error_clamp(k,:)'+vgain.EC*v)+r  ) for 2<opts.TrialType(n)
+%  closed loop trials:          x(n+1)=      A*x(n)+B*(inp(n)+vgain.CL*v)+r                                   for   opts.TrialType(n)<=0
+%  error-clamp trials:          x(n+1)=(A+B*C)*x(n)+B*(error_clamp(k,:)'+vgain.EC*v)+r                        for 0<opts.TrialType(n)<=1
+%  set break after closed loop: x(n+1)=Abreak^n_break(n)*(       A*x(n)+B*(inp(n)+vgain.CL*v)+r  )            for 1<opts.TrialType(n)<=2
+%  set break after error clamp: x(n+1)=Abreak^n_break(n)*( (A+B*C)*x(n)+B*(error_clamp(k,:)'+vgain.EC*v)+r  ) for 2<opts.TrialType(n)
 %
 % For opts.InputType==1: (driven by error inp=u-y_observed)
-%  closed loop trials:          x(n+1)=A*x(n)+B*inp(n)+r                     for   opts.TrialType(n)<=0
-%  error-clamp trials:          x(n+1)=A*x(n)+B*error_clamp(k,:)'+r          for 0<opts.TrialType(n)<=1
-%  set break after closed loop: x(n+1)=Abreak*(A*x(n)+B*inp(n)+r)            for 1<opts.TrialType(n)<=2
-%  set break after error clamp: x(n+1)=Abreak*(A*x(n)+B*error_clamp(k,:)'+r) for 2<opts.TrialType(n)
+%  closed loop trials:          x(n+1)=A*x(n)+B*inp(n)+r                                for   opts.TrialType(n)<=0
+%  error-clamp trials:          x(n+1)=A*x(n)+B*error_clamp(k,:)'+r                     for 0<opts.TrialType(n)<=1
+%  set break after closed loop: x(n+1)=Abreak^n_break(n)*(A*x(n)+B*inp(n)+r)            for 1<opts.TrialType(n)<=2
+%  set break after error clamp: x(n+1)=Abreak^n_break(n)*(A*x(n)+B*error_clamp(k,:)'+r) for 2<opts.TrialType(n)
 %
 %  For all trial types:
 %                       y(n)=C*x(n) + v
@@ -94,6 +94,7 @@ function [x_sim,y_sim]=sim_noisy_system(A,B,C,inp,x0,V0,Vx,cva_rx,Vy,cva_ry,VyEC
 %                              in the error clamp trials as defined above. For dim_y==dim_u==1, error_clamp
 %                              may also be passed as row vector.
 %                              (default: zeros(N,dim_u)  )
+%                     n_break: break lenght (default: ones(N,1))
 %                noise_method: ==0: covariance matrix of signal dependent noise is  diag(cva_rx.^2.*x_sim(n).^2)
 %                              ~=0:                     "                           diag(cva_rx.^2.*(diag(Vx_expected(n))+x_expected(n).^2));
 %                                   (default=1)
@@ -142,6 +143,7 @@ default_opts.InputType=0;
 default_opts.TrialType=zeros(N,1);
 default_opts.Abreak=eye(dim_x);
 default_opts.error_clamp=zeros(N,dim_u);
+default_opts.n_break=ones(N,dim_u);
 default_opts.vgain.CL=zeros(dim_u,1);
 default_opts.vgain.EC=zeros(dim_u,1);
 
@@ -303,11 +305,29 @@ else
          x_expected=AErrorClamp*x_expected+B*opts.error_clamp(k-1,:)';
          Vx_expected=AErrorClamp*Vx_expected*AErrorClamp'+Vrx_n(:,:,k-1) + B*diag(opts.vgain.EC)*Vry_n(:,:,k-1)*diag(opts.vgain.EC)*B';
       elseif opts.TrialType(k-1)==2,  % set break after closed loop trial k-1
-         x_expected=A_break*x_expected+B_break*inp(k-1,:)';
-         Vx_expected=A_break*Vx_expected*A_break'+opts.Abreak*Vrx_n(:,:,k-1)*opts.Abreak' + B_break*diag(opts.vgain.CL)*Vry_n(:,:,k-1)*diag(opts.vgain.CL)*B_break';
+         if opts.n_break(k-1)~=1,
+            A_break_n=diag(diag(opts.Abreak).^opts.n_break(k-1))*A;
+            B_break_n=diag(diag(opts.Abreak).^opts.n_break(k-1))*B;
+            Abreak_n=diag(diag(opts.Abreak).^opts.n_break(k-1));
+         else
+            A_break_n=A_break;
+            B_break_n=B_break;
+            Abreak_n=opts.Abreak;
+         end;
+         x_expected=A_break_n*x_expected+B_break_n*inp(k-1,:)';
+         Vx_expected=A_break_n*Vx_expected*A_break_n'+Abreak_n*Vrx_n(:,:,k-1)*Abreak_n' + B_break_n*diag(opts.vgain.CL)*Vry_n(:,:,k-1)*diag(opts.vgain.CL)*B_break_n';
       else   % set break after error clamp trial k-1
-         x_expected=A_break_EC*x_expected+B_break_EC*opts.error_clamp(k-1,:)';
-         Vx_expected=A_break_EC*Vx_expected*A_break_EC'+opts.Abreak*Vrx_n(:,:,k-1)*opts.Abreak' + B_break_EC*diag(opts.vgain.EC)*Vry_n(:,:,k-1)*diag(opts.vgain.EC)*B_break_EC';
+         if opts.n_break(k-1)~=1,
+            A_break_EC_n=diag(diag(opts.Abreak).^opts.n_break(k-1))*AErrorClamp;
+            B_break_EC_n=diag(diag(opts.Abreak).^opts.n_break(k-1))*B;
+            Abreak_n=diag(diag(opts.Abreak).^opts.n_break(k-1));
+         else
+            A_break_EC_n=A_break_EC;
+            B_break_EC_n=B_break_EC;
+            Abreak_n=opts.Abreak;
+         end;
+         x_expected=A_break_EC_n*x_expected+B_break_EC_n*opts.error_clamp(k-1,:)';
+         Vx_expected=A_break_EC_n*Vx_expected*A_break_EC_n'+Abreak_n*Vrx_n(:,:,k-1)*Abreak_n' + B_break_EC_n*diag(opts.vgain.EC)*Vry_n(:,:,k-1)*diag(opts.vgain.EC)*B_break_EC_n';
       end;
       
         %** update the state covariance matrix
@@ -371,11 +391,29 @@ for si=1:Nsim,
          err_nm1=opts.error_clamp(k-1,:)'+diag(opts.vgain.EC)*v(k-1,:)';
          xbar=AErrorClamp*xbar+B*(opts.error_clamp(k-1,:)'+diag(opts.vgain.EC)*v(k-1,:)')+r(k-1,:)';
       elseif opts.TrialType(k-1)==2,  % set break after closed loop trial k-1
+         if opts.n_break(k-1)~=1,
+            A_break_n=diag(diag(opts.Abreak).^opts.n_break(k-1))*A;
+            B_break_n=diag(diag(opts.Abreak).^opts.n_break(k-1))*B;
+            Abreak_n=diag(diag(opts.Abreak).^opts.n_break(k-1));
+         else
+            A_break_n=A_break;
+            B_break_n=B_break;
+            Abreak_n=opts.Abreak;
+         end;
          err_nm1=inp(k-1,:)'+diag(opts.vgain.CL)*v(k-1,:)'-C*xbar;
-         xbar=A_break*xbar+B_break*(inp(k-1,:)'+diag(opts.vgain.CL)*v(k-1,:)')+opts.Abreak*r(k-1,:)';
+         xbar=A_break_n*xbar+B_break_n*(inp(k-1,:)'+diag(opts.vgain.CL)*v(k-1,:)')+Abreak_n*r(k-1,:)';
       else   % set break after error clamp trial k-1
+         if opts.n_break(k-1)~=1,
+            A_break_EC_n=diag(diag(opts.Abreak).^opts.n_break(k-1))*AErrorClamp;
+            B_break_EC_n=diag(diag(opts.Abreak).^opts.n_break(k-1))*B;
+            Abreak_n=diag(diag(opts.Abreak).^opts.n_break(k-1));
+         else
+            A_break_EC_n=A_break_EC;
+            B_break_EC_n=B_break_EC;
+            Abreak_n=opts.Abreak;
+         end;
          err_nm1=opts.error_clamp(k-1,:)'+diag(opts.vgain.EC)*v(k-1,:)';
-         xbar=A_break_EC*xbar+B_break_EC*(opts.error_clamp(k-1,:)'+diag(opts.vgain.EC)*v(k-1,:)')+opts.Abreak*r(k-1,:)';
+         xbar=A_break_EC_n*xbar+B_break_EC_n*(opts.error_clamp(k-1,:)'+diag(opts.vgain.EC)*v(k-1,:)')+Abreak_n*r(k-1,:)';
       end;
       
       if any(cva_ry>0),
@@ -408,16 +446,16 @@ function [x_hat,y_hat,VyM]=MeanCovMatrix_DiscretLinearSystem(A,B,C,inp,x0,Vx0,Vr
 %x_sim=MeanCovMatrix_DiscretLinearSystem(A,B,C,inp,x0,Vx0,Vrx,cva_rx,Vry,cva_ry,VryEC,opts)
 %
 % For opts.InputType==0: (driven by input inp=u)
-%  closed loop trials:          x(n+1)=      A*x(n)+B*(inp(n)+vgain.CL*v)+r                        for   opts.TrialType(n)<=0
-%  error-clamp trials:          x(n+1)=(A+B*C)*x(n)+B*(error_clamp(k,:)'+vgain.EC*v)+r             for 0<opts.TrialType(n)<=1
-%  set break after closed loop: x(n+1)=Abreak*(       A*x(n)+B*(inp(n)+vgain.CL*v)+r  )            for 1<opts.TrialType(n)<=2
-%  set break after error clamp: x(n+1)=Abreak*( (A+B*C)*x(n)+B*(error_clamp(k,:)'+vgain.EC*v)+r  ) for 2<opts.TrialType(n)
+%  closed loop trials:          x(n+1)=      A*x(n)+B*(inp(n)+vgain.CL*v)+r                                   for   opts.TrialType(n)<=0
+%  error-clamp trials:          x(n+1)=(A+B*C)*x(n)+B*(error_clamp(k,:)'+vgain.EC*v)+r                        for 0<opts.TrialType(n)<=1
+%  set break after closed loop: x(n+1)=Abreak^n_break(n)*(       A*x(n)+B*(inp(n)+vgain.CL*v)+r  )            for 1<opts.TrialType(n)<=2
+%  set break after error clamp: x(n+1)=Abreak^n_break(n)*( (A+B*C)*x(n)+B*(error_clamp(k,:)'+vgain.EC*v)+r  ) for 2<opts.TrialType(n)
 %
 % For opts.InputType==1: (driven by error inp=u-y_observed)
-%  closed loop trials:          x(n+1)=A*x(n)+B*inp(n)+r                     for   opts.TrialType(n)<=0
-%  error-clamp trials:          x(n+1)=A*x(n)+B*error_clamp(k,:)'+r          for 0<opts.TrialType(n)<=1
-%  set break after closed loop: x(n+1)=Abreak*(A*x(n)+B*inp(n)+r)            for 1<opts.TrialType(n)<=2
-%  set break after error clamp: x(n+1)=Abreak*(A*x(n)+B*error_clamp(k,:)'+r) for 2<opts.TrialType(n)
+%  closed loop trials:          x(n+1)=A*x(n)+B*inp(n)+r                                for   opts.TrialType(n)<=0
+%  error-clamp trials:          x(n+1)=A*x(n)+B*error_clamp(k,:)'+r                     for 0<opts.TrialType(n)<=1
+%  set break after closed loop: x(n+1)=Abreak^n_break(n)*(A*x(n)+B*inp(n)+r)            for 1<opts.TrialType(n)<=2
+%  set break after error clamp: x(n+1)=Abreak^n_break(n)*(A*x(n)+B*error_clamp(k,:)'+r) for 2<opts.TrialType(n)
 %
 %  For all trial types:
 %                       y(n)=C*x(n) + v
@@ -468,6 +506,7 @@ function [x_hat,y_hat,VyM]=MeanCovMatrix_DiscretLinearSystem(A,B,C,inp,x0,Vx0,Vr
 %                              in the error clamp trials as defined above. For dim_y==dim_u==1, error_clamp
 %                              may also be passed as row vector.
 %                              (default: zeros(N,dim_u)  )
+%                     n_break: break lenght (default: ones(N,1))
 %                signed_EDPMN: logical scalar,  true: the variance of the error dependent motor noise (EDPM) is zero if the sign of C*x differs from the sign
 %                                                     of the error
 %                                              false: the variance of the error dependent motor noise v(n) is diag(cva_ry.^2.*err(n-1).^2)
@@ -510,6 +549,7 @@ default_opts.InputType=0;
 default_opts.TrialType=zeros(N,1);
 default_opts.Abreak=eye(dim_x);
 default_opts.error_clamp=zeros(N,dim_u);
+default_opts.n_break=ones(N,1);
 default_opts.vgain.CL=zeros(dim_y,1);
 default_opts.vgain.EC=zeros(dim_y,1);
 default_opts.signed_EDPMN=false;
@@ -640,14 +680,26 @@ for k=2:N+1,
       Dn(:,:,k-1)=eye(dim_x);
       Zn(:,k-1)=opts.error_clamp(k-1,:)';
    elseif opts.TrialType(k-1)==2,  % set break after closed loop trial k
-      An(:,:,k-1)=A_break;
-      Bn(:,:,k-1)=B_break;
-      Dn(:,:,k-1)=opts.Abreak;
+      if opts.n_break(k-1)~=1
+         An(:,:,k-1)=diag(diag(opts.Abreak).^opts.n_break(k-1))*A;
+         Bn(:,:,k-1)=diag(diag(opts.Abreak).^opts.n_break(k-1))*B;
+         Dn(:,:,k-1)=diag(diag(opts.Abreak).^opts.n_break(k-1));
+      else
+         An(:,:,k-1)=A_break;
+         Bn(:,:,k-1)=B_break;
+         Dn(:,:,k-1)=opts.Abreak;
+      end
       Zn(:,k-1)=inp(k-1,:)';
    elseif opts.TrialType(k-1)==3,  % set break after error clamp trial k
-      An(:,:,k-1)=A_break_EC;
-      Bn(:,:,k-1)=B_break_EC;
-      Dn(:,:,k-1)=opts.Abreak;
+      if opts.n_break(k-1)~=1
+         An(:,:,k-1)=diag(diag(opts.Abreak).^opts.n_break(k-1))*AErrorClamp;
+         Bn(:,:,k-1)=diag(diag(opts.Abreak).^opts.n_break(k-1))*B;
+         Dn(:,:,k-1)=diag(diag(opts.Abreak).^opts.n_break(k-1));
+      else
+         An(:,:,k-1)=A_break_EC;
+         Bn(:,:,k-1)=B_break_EC;
+         Dn(:,:,k-1)=opts.Abreak;
+      end
       Zn(:,k-1)=opts.error_clamp(k-1,:)';
    end;
    
@@ -744,14 +796,14 @@ function [x_hat,Vx,Vrx_n,Vry_n]=expected_DiscreteSystem_stats(A,B,C,inp,x0,Vx0,V
 % For opts.InputType==0: (driven by input inp=u)
 %  closed loop trials:          x(n+1)=      A*x(n)+B*(inp(n)+vgain.CL*v)+r                        for   opts.TrialType(n)<=0
 %  error-clamp trials:          x(n+1)=(A+B*C)*x(n)+B*(error_clamp(k,:)'+vgain.EC*v)+r             for 0<opts.TrialType(n)<=1
-%  set break after closed loop: x(n+1)=Abreak*(       A*x(n)+B*(inp(n)+vgain.CL*v)+r  )            for 1<opts.TrialType(n)<=2
-%  set break after error clamp: x(n+1)=Abreak*( (A+B*C)*x(n)+B*(error_clamp(k,:)'+vgain.EC*v)+r  ) for 2<opts.TrialType(n)
+%  set break after closed loop: x(n+1)=Abreak^n_break(n)*(       A*x(n)+B*(inp(n)+vgain.CL*v)+r  )            for 1<opts.TrialType(n)<=2
+%  set break after error clamp: x(n+1)=Abreak^n_break(n)*( (A+B*C)*x(n)+B*(error_clamp(k,:)'+vgain.EC*v)+r  ) for 2<opts.TrialType(n)
 %
 % For opts.InputType==1: (driven by error inp=u-y_observed)
-%  closed loop trials:          x(n+1)=A*x(n)+B*inp(n)+r                     for   opts.TrialType(n)<=0
-%  error-clamp trials:          x(n+1)=A*x(n)+B*error_clamp(k,:)'+r          for 0<opts.TrialType(n)<=1
-%  set break after closed loop: x(n+1)=Abreak*(A*x(n)+B*inp(n)+r)            for 1<opts.TrialType(n)<=2
-%  set break after error clamp: x(n+1)=Abreak*(A*x(n)+B*error_clamp(k,:)'+r) for 2<opts.TrialType(n)
+%  closed loop trials:          x(n+1)=A*x(n)+B*inp(n)+r                                for   opts.TrialType(n)<=0
+%  error-clamp trials:          x(n+1)=A*x(n)+B*error_clamp(k,:)'+r                     for 0<opts.TrialType(n)<=1
+%  set break after closed loop: x(n+1)=Abreak^n_break(n)*(A*x(n)+B*inp(n)+r)            for 1<opts.TrialType(n)<=2
+%  set break after error clamp: x(n+1)=Abreak^n_break(n)*(A*x(n)+B*error_clamp(k,:)'+r) for 2<opts.TrialType(n)
 %
 %  For all trial types:
 %                       y(n)=C*x(n) + v
@@ -802,6 +854,7 @@ function [x_hat,Vx,Vrx_n,Vry_n]=expected_DiscreteSystem_stats(A,B,C,inp,x0,Vx0,V
 %                              in the error clamp trials as defined above. For dim_y==dim_u==1, error_clamp
 %                              may also be passed as row vector.
 %                              (default: zeros(N,dim_u)  )
+%                     n_break: break lenght (default: ones(N,1))
 %                signed_EDPMN: logical scalar,  true: the variance of the error dependent motor noise (EDPM) is zero if the sign of C*x differs from the sign
 %                                                     of the error
 %                                              false: the variance of the error dependent motor noise v(n) is diag(cva_ry.^2.*err(n-1).^2)
@@ -844,6 +897,7 @@ default_opts.InputType=0;
 default_opts.TrialType=zeros(N,1);
 default_opts.Abreak=eye(dim_x);
 default_opts.error_clamp=zeros(N,dim_u);
+default_opts.n_break=ones(N,1);
 default_opts.vgain.CL=zeros(dim_y,1);
 default_opts.vgain.EC=zeros(dim_y,1);
 default_opts.signed_EDPMN=false;
@@ -975,14 +1029,26 @@ for k=2:N+1,
       Dn(:,:,k-1)=eye(dim_x);
       Zn(:,k-1)=opts.error_clamp(k-1,:)';
    elseif opts.TrialType(k-1)==2,  % set break after closed loop trial k
-      An(:,:,k-1)=A_break;
-      Bn(:,:,k-1)=B_break;
-      Dn(:,:,k-1)=opts.Abreak;
+      if opts.n_break(k-1)~=1
+         An(:,:,k-1)=diag(diag(opts.Abreak).^opts.n_break(k-1))*A;
+         Bn(:,:,k-1)=diag(diag(opts.Abreak).^opts.n_break(k-1))*B;
+         Dn(:,:,k-1)=diag(diag(opts.Abreak).^opts.n_break(k-1));
+      else
+         An(:,:,k-1)=A_break;
+         Bn(:,:,k-1)=B_break;
+         Dn(:,:,k-1)=opts.Abreak;
+      end
       Zn(:,k-1)=inp(k-1,:)';
    elseif opts.TrialType(k-1)==3,  % set break after error clamp trial k
-      An(:,:,k-1)=A_break_EC;
-      Bn(:,:,k-1)=B_break_EC;
-      Dn(:,:,k-1)=opts.Abreak;
+      if opts.n_break(k-1)~=1
+         An(:,:,k-1)=diag(diag(opts.Abreak).^opts.n_break(k-1))*AErrorClamp;
+         Bn(:,:,k-1)=diag(diag(opts.Abreak).^opts.n_break(k-1))*B;
+         Dn(:,:,k-1)=diag(diag(opts.Abreak).^opts.n_break(k-1));
+      else
+         An(:,:,k-1)=A_break_EC;
+         Bn(:,:,k-1)=B_break_EC;
+         Dn(:,:,k-1)=opts.Abreak;
+      end
       Zn(:,k-1)=opts.error_clamp(k-1,:)';
    end;
    
@@ -1422,16 +1488,16 @@ function [x,V,V_np1_n,K,xK,VK,VK_np1_n,x_ap,V_ap]=kalman_observer(A,B,C,u,y,x0,V
 % Kalman filter and Kalman smoother for the system with the following trial types:
 %
 % For opts.InputType==0: (driven by input inp=u)
-%  closed loop trials:          x(n+1)=      A*x(n)+B*(inp(n)+vgain.CL*v)+r                        for   opts.TrialType(n)<=0
-%  error-clamp trials:          x(n+1)=(A+B*C)*x(n)+B*(error_clamp(k,:)'+vgain.EC*v)+r             for 0<opts.TrialType(n)<=1
-%  set break after closed loop: x(n+1)=Abreak*(       A*x(n)+B*(inp(n)+vgain.CL*v)+r  )            for 1<opts.TrialType(n)<=2
-%  set break after error clamp: x(n+1)=Abreak*( (A+B*C)*x(n)+B*(error_clamp(k,:)'+vgain.EC*v)+r  ) for 2<opts.TrialType(n)
+%  closed loop trials:          x(n+1)=      A*x(n)+B*(inp(n)+vgain.CL*v)+r                                   for   opts.TrialType(n)<=0
+%  error-clamp trials:          x(n+1)=(A+B*C)*x(n)+B*(error_clamp(k,:)'+vgain.EC*v)+r                        for 0<opts.TrialType(n)<=1
+%  set break after closed loop: x(n+1)=Abreak^n_break(n)*(       A*x(n)+B*(inp(n)+vgain.CL*v)+r  )            for 1<opts.TrialType(n)<=2
+%  set break after error clamp: x(n+1)=Abreak^n_break(n)*( (A+B*C)*x(n)+B*(error_clamp(k,:)'+vgain.EC*v)+r  ) for 2<opts.TrialType(n)
 %
 % For opts.InputType==1: (driven by error inp=u-y_observed)
-%  closed loop trials:          x(n+1)=A*x(n)+B*inp(n)+r                     for   opts.TrialType(n)<=0
-%  error-clamp trials:          x(n+1)=A*x(n)+B*error_clamp(k,:)'+r          for 0<opts.TrialType(n)<=1
-%  set break after closed loop: x(n+1)=Abreak*(A*x(n)+B*inp(n)+r)            for 1<opts.TrialType(n)<=2
-%  set break after error clamp: x(n+1)=Abreak*(A*x(n)+B*error_clamp(k,:)'+r) for 2<opts.TrialType(n)
+%  closed loop trials:          x(n+1)=A*x(n)+B*inp(n)+r                                for   opts.TrialType(n)<=0
+%  error-clamp trials:          x(n+1)=A*x(n)+B*error_clamp(k,:)'+r                     for 0<opts.TrialType(n)<=1
+%  set break after closed loop: x(n+1)=Abreak^n_break(n)*(A*x(n)+B*inp(n)+r)            for 1<opts.TrialType(n)<=2
+%  set break after error clamp: x(n+1)=Abreak^n_break(n)*(A*x(n)+B*error_clamp(k,:)'+r) for 2<opts.TrialType(n)
 %
 %  For all trial types:
 %                       y(n)=C*x(n) + v
@@ -1480,6 +1546,7 @@ function [x,V,V_np1_n,K,xK,VK,VK_np1_n,x_ap,V_ap]=kalman_observer(A,B,C,u,y,x0,V
 %                              in the error clamp trials as defined above. For dim_y==dim_u==1, error_clamp
 %                              may also be passed as row vector.
 %                              (default: zeros(N,dim_u)  )
+%                     n_break: break lenght (default: ones(N,1))
 %                do_smoothing: If true, the algorithm performs the backward iterative kalman smoothing as
 %                              described in 
 %                                     Rauch, H.E., Striebel, C., & Tung, F. (1965). 
@@ -1550,6 +1617,7 @@ default_opts.InputType=0;
 default_opts.TrialType=zeros(N,1);
 default_opts.Abreak=eye(dim_x);
 default_opts.error_clamp=zeros(N,dim_u);
+default_opts.n_break=ones(N,1);
 default_opts.do_smoothing=true;
 default_opts.vgain.CL=0;
 default_opts.vgain.EC=0;
@@ -1672,15 +1740,29 @@ for k=1:N,  % index 1 corresponds to time0
       g=diag(opts.vgain.EC);
    elseif opts.TrialType(k)==2, % set break after closed loop trial k
       inp=u(k,:)';
-      A_=A_break;
-      B_=B_break;
-      var_x_=opts.Abreak*var_x(:,:,k)*opts.Abreak';
+      if opts.n_break(k)~=1
+         Abreak_n=diag(diag(opts.Abreak).^opts.n_break(k));
+         A_=Abreak_n*A;
+         B_=Abreak_n*B;
+         var_x_=Abreak_n*var_x(:,:,k)*Abreak_n';
+      else
+         A_=A_break;
+         B_=B_break;
+         var_x_=opts.Abreak*var_x(:,:,k)*opts.Abreak';
+      end
       g=diag(opts.vgain.CL);
    else
       inp=opts.error_clamp(k,:)';
-      A_=A_break_EC;
-      B_=B_break_EC;
-      var_x_=opts.Abreak*var_x(:,:,k)*opts.Abreak';
+      if opts.n_break(k)~=1
+         Abreak_n=diag(diag(opts.Abreak).^opts.n_break(k));
+         A_=Abreak_n*AErrorClamp;
+         B_=Abreak_n*B;
+         var_x_=Abreak_n*var_x(:,:,k)*Abreak_n';
+      else
+         A_=A_break_EC;
+         B_=B_break_EC;
+         var_x_=opts.Abreak*var_x(:,:,k)*opts.Abreak';
+      end
       g=diag(opts.vgain.EC);
    end;   
    
@@ -2016,7 +2098,7 @@ function [NLL,w_ssqerr,logDet]=incomplete_negLogLike_fun_old(A,B,C,y,inp,x0,Vx0,
 if size(y,1)==1,
    y=y';
 end;
-NS=size(y,2);
+[NTrials,NS]=size(y);
 if size(inp,1)==1,
    inp=inp';
 end;
@@ -2026,7 +2108,21 @@ if size(opts.TrialType,1)==1,
 end;
 NS=max([NS,size(opts.TrialType,2)]);
 
+if ~isfield(opts,'error_clamp')
+   opts.error_clamp=zeros(NTrials,1);
+end;
+if size(opts.error_clamp,1)==1,
+   opts.error_clamp=opts.error_clamp';
+end;
+NS=max([NS,size(opts.error_clamp,2)]);
 
+if ~isfield(opts,'n_break')
+   opts.n_break=ones(NTrials,1);
+end;
+if size(opts.n_break,1)==1,
+   opts.n_break=opts.n_break';
+end;
+NS=max([NS,size(opts.n_break,2)]);
 
 if size(y,2)<NS,
    y=[y,repmat(y(:,end),1,NS-size(y,2))];
@@ -2036,6 +2132,12 @@ if size(inp,2)<NS,
 end;
 if size(opts.TrialType,2)<NS,
    opts.TrialType=[opts.TrialType,repmat(opts.TrialType(:,end),1,NS-size(opts.TrialType,2))];
+end;
+if size(opts.error_clamp,2)<NS,
+   opts.error_clamp=[opts.error_clamp,repmat(opts.error_clamp(:,end),1,NS-size(opts.error_clamp,2))];
+end;
+if size(opts.n_break,2)<NS,
+   opts.n_break=[opts.n_break,repmat(opts.n_break(:,end),1,NS-size(opts.n_break,2))];
 end;
 
 MCV_opts=opts;
@@ -2048,6 +2150,8 @@ for dat_i=1:size(y,2),
          || max(abs(opts.TrialType(:,dat_i)-opts.TrialType(:,dat_i-1)))>0,
       new_input=true;
       MCV_opts.TrialType=opts.TrialType(:,dat_i);
+      MCV_opts.error_clamp=opts.error_clamp(:,dat_i);
+      MCV_opts.n_break=opts.n_break(:,dat_i);
       [x_hat,y_hat,VyM]=MeanCovMatrix_DiscretLinearSystem(A,B,C,inp(:,dat_i),x0,Vx0,Vrx,cva_rx,Vry,cva_ry,VryEC,MCV_opts);
       y_hat=y_hat(1:end-1);
       N=size(y,1);
@@ -2076,16 +2180,16 @@ function [incomplete_negLogLike,w_ssqerr]=incomplete_negLogLike_fun_new(A,B,C,y,
 %
 % computes the incomplete negative log-likelihood of the observation y for the following time-discrete linar system:
 % For opts.InputType==0: (driven by input u)
-%  closed loop trials:          x(n+1)=      A*x(n)+B*(inp(n)+vgain.CL*v)+r                        for   opts.TrialType(n)<=0
-%  error-clamp trials:          x(n+1)=(A+B*C)*x(n)+B*(error_clamp(k,:)'+vgain.EC*v)+r             for 0<opts.TrialType(n)<=1
-%  set break after closed loop: x(n+1)=Abreak*(       A*x(n)+B*(inp(n)+vgain.CL*v)+r  )            for 1<opts.TrialType(n)<=2
-%  set break after error clamp: x(n+1)=Abreak*( (A+B*C)*x(n)+B*(error_clamp(k,:)'+vgain.EC*v)+r  ) for 2<opts.TrialType(n)
+%  closed loop trials:          x(n+1)=      A*x(n)+B*(inp(n)+vgain.CL*v)+r                                   for   opts.TrialType(n)<=0
+%  error-clamp trials:          x(n+1)=(A+B*C)*x(n)+B*(error_clamp(k,:)'+vgain.EC*v)+r                        for 0<opts.TrialType(n)<=1
+%  set break after closed loop: x(n+1)=Abreak^n_break(n)*(       A*x(n)+B*(inp(n)+vgain.CL*v)+r  )            for 1<opts.TrialType(n)<=2
+%  set break after error clamp: x(n+1)=Abreak^n_break(n)*( (A+B*C)*x(n)+B*(error_clamp(k,:)'+vgain.EC*v)+r  ) for 2<opts.TrialType(n)
 %
 % For opts.InputType==1: (driven by error u-y)
-%  closed loop trials:          x(n+1)=A*x(n)+B*inp(n)+r                     for   opts.TrialType(n)<=0
-%  error-clamp trials:          x(n+1)=A*x(n)+B*error_clamp(k,:)'+r          for 0<opts.TrialType(n)<=1
-%  set break after closed loop: x(n+1)=Abreak*(A*x(n)+B*inp(n)+r)            for 1<opts.TrialType(n)<=2
-%  set break after error clamp: x(n+1)=Abreak*(A*x(n)+B*error_clamp(k,:)'+r) for 2<opts.TrialType(n)
+%  closed loop trials:          x(n+1)=A*x(n)+B*inp(n)+r                                for   opts.TrialType(n)<=0
+%  error-clamp trials:          x(n+1)=A*x(n)+B*error_clamp(k,:)'+r                     for 0<opts.TrialType(n)<=1
+%  set break after closed loop: x(n+1)=Abreak^n_break(n)*(A*x(n)+B*inp(n)+r)            for 1<opts.TrialType(n)<=2
+%  set break after error clamp: x(n+1)=Abreak^n_break(n)*(A*x(n)+B*error_clamp(k,:)'+r) for 2<opts.TrialType(n)
 %
 %  For all trial types:
 %                       y(n)=C*x(n) + v
@@ -2142,6 +2246,7 @@ function [incomplete_negLogLike,w_ssqerr]=incomplete_negLogLike_fun_new(A,B,C,y,
 %                              in the error clamp trials as defined above. For dim_y==dim_u==1, error_clamp
 %                              may also be passed as row vector.
 %                              (default: zeros(N,dim_u)  )
+%                     n_break: break lenght (default: ones(N,1))
 %Returned value:
 %  incomplete_negLogLike: the incomplete negative log-likelihood
 %               w_ssqerr: weighted sum of squared error  (sum{i=1:N}( (y(i)-y_prior(i))'*SIGMA^-1*(y(i)-y_prior(i))   )  )
