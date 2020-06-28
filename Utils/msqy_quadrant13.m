@@ -9,7 +9,7 @@
 %    msqy=msqy_quadrant13(m,S)
 % computes the integral of x(2)^2*normpdf(x,m,S) across the entire 1st and 3rd quadrants
 % m: mean (vector of length 2)
-% S: covariance matrix (size [2,2]
+% S: covariance matrix (size [2, 2]
 %
 function msqy=msqy_quadrant13(m,S)
 
