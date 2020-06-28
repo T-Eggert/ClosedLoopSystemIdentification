@@ -1,5 +1,5 @@
 % copyright: T. Eggert  (2019)
-%            Ludwig-Maximilians Universit‰t, Munich
+%            Ludwig-Maximilians Universit√§t, Munich
 %            Department of Neurology
 %            Fraunhoferstr. 20
 %            D-82152 Planegg/Martinsried
@@ -9,7 +9,7 @@
 %    msqy=msqy_quadrant13(m,S)
 % computes the integral of x(2)^2*normpdf(x,m,S) across the entire 1st and 3rd quadrants
 % m: mean (vector of length 2)
-% S: covariance matrix (size [2, 2]
+% S: covariance matrix (size [2,2]
 %
 function msqy=msqy_quadrant13(m,S)
 
