@@ -1,5 +1,5 @@
 % copyright: T. Eggert  (2019)
-%            Ludwig-Maximilians Universit‰t, Munich
+%            Ludwig-Maximilians Universit√§t, Munich
 %            Department of Neurology
 %            Fraunhoferstr. 20
 %            D-82152 Planegg/Martinsried
