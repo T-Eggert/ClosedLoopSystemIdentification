@@ -9,7 +9,7 @@
 % Library for computing the covariance matrix of the output of a closed-loop time-discrete linear system and its likelihood
 function dls_lib=DiscreteLinearSystem_lib()
 
-% [x_sim,y_sim]=sim_noisy_system(A,B,C,inp,x0,V0,Vx,cva_rx,Vy,cva_ry,VyEC,Nsim,opts)
+% [x_sim,y_sim,r,v]=sim_noisy_system(A,B,C,inp,x0,V0,Vx,cva_rx,Vy,cva_ry,VyEC,Nsim,opts)
 dls_lib.sim_noisy_system=@sim_noisy_system;  
 % [x_hat,Vx,Vrx_n,Vry_n]=expected_DiscreteSystem_stats(A,B,C,inp,x0,Vx0,Vrx,cva_rx,Vry,cva_ry,VryEC,opts)
 dls_lib.expected_DiscreteSystem_stats=@ expected_DiscreteSystem_stats;
@@ -30,7 +30,7 @@ dls_lib.incomplete_negLogLike_fun_new=@incomplete_negLogLike_fun_new;
 end
 
 
-function [x_sim,y_sim]=sim_noisy_system(A,B,C,inp,x0,V0,Vx,cva_rx,Vy,cva_ry,VyEC,Nsim,opts)
+function [x_sim,y_sim,r,v]=sim_noisy_system(A,B,C,inp,x0,V0,Vx,cva_rx,Vy,cva_ry,VyEC,Nsim,opts)
 %x_sim=sim_noisy_system(A,B,C,u,x0,V0,Vx,Vy,Nsim,opts)
 %
 % For opts.InputType==0: (driven by input inp=u)
@@ -231,7 +231,7 @@ opts.TrialType(N+1)=opts.TrialType(N);  % this is only to allow type dependent V
 
 %** compute the expected state, the expected state covariance matrix, and the covariance matrix of the state noise
 
-if all(cva_rx==0) && all(cva_ry)==0,
+if all(cva_rx==0) && all(cva_ry==0),
    Vrx_n=reshape(repmat(Vx,1,N+1),dim_x,dim_x,N+1);
    Vry_n=reshape(repmat(Vy,1,N+1),dim_y,dim_y,N+1);
    is_EC=any(repmat(opts.TrialType,1,2)==repmat([1 3],N+1,1),2);
@@ -272,7 +272,7 @@ else
                cv_expected_err=cv_expected_cx+diag(opts.vgain.CL)*Vry_n(:,:,k-1)*diag(opts.vgain.CL);
                for inp_i=1:size(inp,2),
                   m_cx_err=[C(inp_i,:)*x_expected;err_nm1_expected(inp_i)];
-                  S_cx_err=[-cv_expected_cx(inp_i,inp_i),-cv_expected_cx(inp_i,inp_i);  -cv_expected_cx(inp_i,inp_i),cv_expected_err(inp_i,inp_i)];
+                  S_cx_err=[cv_expected_cx(inp_i,inp_i),-cv_expected_cx(inp_i,inp_i);  -cv_expected_cx(inp_i,inp_i),cv_expected_err(inp_i,inp_i)];
                   expected_err_sq(inp_i,inp_i)=msqy_quadrant13(m_cx_err,S_cx_err);
                end;
             else
@@ -285,7 +285,7 @@ else
                cv_expected_err=diag(opts.vgain.EC)*Vry_n(:,:,k-1)*diag(opts.vgain.EC);
                for inp_i=1:size(inp,2),
                   m_cx_err=[C(inp_i,:)*x_expected;opts.error_clamp(k-1,inp_i)];
-                  S_cx_err=[-cv_expected_cx(inp_i,inp_i),0;  0,cv_expected_err(inp_i,inp_i)];
+                  S_cx_err=[cv_expected_cx(inp_i,inp_i),0;  0,cv_expected_err(inp_i,inp_i)];
                   expected_err_sq(inp_i,inp_i)=msqy_quadrant13(m_cx_err,S_cx_err);
                end;
             else
@@ -764,7 +764,7 @@ for j=1:N,
    VyM((j-1)*dim_y+(1:dim_y),(j-1)*dim_y+(1:dim_y))=C*Vij*C'+Vry_n(:,:,j);
    
    if opts.InputType==0,
-      v_ij=Bn(:,:,j)*diag(vgain(j))*Vry_n(:,:,j);
+      v_ij=Bn(:,:,j)*diag(vgain(:,j))*Vry_n(:,:,j);
    else
       v_ij=zeros(dim_x,1);
    end;
@@ -1426,15 +1426,15 @@ function Vrx0=compute_asymptotic_start_Vrx(pars,Data,ci,A,B,C,Vrx,cva_rx)
 % A,B,C,Vrx,cva_rx: optional parameters which will be generated from pars if not provided
 
 
+if nargin<5 || isempty(B),
+   B=[pars.bf;pars.bs];
+end;
 if nargin<4 || isempty(A),
    if Data.InputType==1,
       A=diag([pars.af;pars.as]);
    else
       A=diag([pars.af;pars.as])-repmat(B,1,2);
    end;
-end;
-if nargin<5 || isempty(B),
-   B=[pars.bf;pars.bs];
 end;
 if nargin<6 || isempty(C),
    C=[1,1];
@@ -1725,7 +1725,6 @@ for k=1:N,  % index 1 corresponds to time0
    
    
    % change system parameters according to trial type:
-   var_x_n=var_x(:,:,k);
    if opts.TrialType(k)==0,      % closed loop trial
       inp=u(k,:)';
       A_=A;
