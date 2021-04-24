@@ -80,16 +80,18 @@ Data.constraint_options.fix_vgainECMinusCL=1;  % set this to NaN to disable the 
 Data.constraint_options.Vrx11EqVrx22=true;     % set this to NaN to disable the constraint
 
 
-if true                                        % Set this to true to test multi-target adaptation.
-                                               %   All trials will be assigned to a single
-                                               %   stimulus class if ~isfield(Data,'StimulusClass')
-   Data.StimulusClass=ones(length(Data.y),1);
-   Data.StimulusClass(2:3:length(Data.y))=2;
-   Data.StimulusClass(3:3:length(Data.y))=3;
-   Data.TransferMatrix=[1.0,0.5,0.2 ...
-      ;0.5,1.0,0.5 ...
-      ;0.2,0.5,1.0];
-end
+%************** Demo of multi-target adaptation: **************
+% if true                                        % Set this to true to test multi-target adaptation.
+%                                                %   All trials will be assigned to a single
+%                                                %   stimulus class if ~isfield(Data,'StimulusClass')
+%    Data.StimulusClass=ones(length(Data.y),1);
+%    Data.StimulusClass(2:3:length(Data.y))=2;
+%    Data.StimulusClass(3:3:length(Data.y))=3;
+%    Data.TransferMatrix=[1.0,0.5,0.2 ...
+%       ;0.5,1.0,0.5 ...
+%       ;0.2,0.5,1.0];
+% end
+%***************************************************************
 
 Data.Vrx0=[];     % if isempty(Data.Vrx0), the initial value of the state variance will be computed as the stationary solution
 
