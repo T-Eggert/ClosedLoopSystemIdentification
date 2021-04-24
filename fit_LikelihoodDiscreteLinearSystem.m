@@ -10,15 +10,21 @@
 % Maximum-likelihood fit of a time-discrete linear system observed under closed loop conditions
 function [pars,incomplete_negLogLike,aic,w_ssqerr]=fit_LikelihoodDiscreteLinearSystem(Data,x0,do_fit,options)
 %  Data: struct with fields
+%          obligatory fields:
 %        Data.y
 %        Data.u
 %        Data.TrialType
+%          optional field:
 %        Data.error_clamp
 %        Data.n_break
 %        Data.InputType
 %        Data.signed_EDPMN
 %        Data.Vrx0;
 %        Data.constraint_options
+%        Data.StimulusClass
+%        Data.TransferMatrix
+%        Data.x0               % do not provide a start state if pars.xf_start || pars.xs_start because
+%                                     Data.x0 overwrites the start value defined by [pars.xf_start,pars.xs_start];
 
 
 dpars=default_pars();
@@ -33,6 +39,9 @@ for k=1:Npars,
    default_do_fit.(opts.parnames{k})=false;
 end
 do_fit=set_default_parameters(do_fit,default_do_fit);
+if isfield(Data,'x0') && (do_fit.xf_start || do_fit.xs_start)
+   error('Data.x0 provided with any([pars.xf_start,pars.xs_start]!!');
+end
 
 if nargin<2 || isempty(x0),
    x0=dpars;
@@ -72,6 +81,17 @@ if size(Data.n_break,1)==1,
 end;
 NS=max([NS,size(Data.n_break,2)]);
 
+if ~isfield(Data,'StimulusClass')
+   Data.StimulusClass=ones(NTrials,1);
+   Data.TransferMatrix=1;
+end
+if size(Data.StimulusClass,1)==1,
+   Data.StimulusClass=Data.StimulusClass';
+end;
+NS=max([NS,size(Data.StimulusClass,2)]);
+
+
+
 if ~isfield(Data,'InputType'),
    Data.InputType=0;
 end;
@@ -90,10 +110,21 @@ end;
 if size(Data.n_break,2)<NS,
    Data.n_break=[Data.n_break,repmat(Data.n_break(:,end),1,NS-size(Data.n_break,2))];
 end;
+if size(Data.StimulusClass,2)<NS,
+   Data.StimulusClass=[Data.StimulusClass,repmat(Data.StimulusClass(:,end),1,NS-size(Data.StimulusClass,2))];
+end;
 
 if ~isfield(Data,'signed_EDPMN'),
    Data.signed_EDPMN=false;
 end;
+
+NClasses=length(unique(Data.StimulusClass(:)));
+if ~isfield(Data,'TransferMatrix')
+   Data.TransferMatrix=diag(ones(NClasses,1));
+end
+if any(size(Data.TransferMatrix)~=NClasses)
+   error('invalid size(Data.TransferMatrix)!');
+end
 
 default_constraint_options.Vrx11EqVrx22=NaN;
 default_constraint_options.fix_vgainECMinusCL=NaN;
@@ -139,9 +170,9 @@ default_ll.abreak_exponent=0.1;
 default_ll.vgain_CL=-1;
 default_ll.vgain_EC=-1;
 default_ll.Vry=1e-5;   
-default_ll.Vrx11=1e-5;   
+default_ll.Vrx11=1e-8;   
 default_ll.Vrx12=-500;   
-default_ll.Vrx22=1e-5;
+default_ll.Vrx22=1e-8;
 default_ll.cva_xf=0.0;
 default_ll.cva_xs=0.0;
 default_ll.cva_ry=0.0;
@@ -262,7 +293,7 @@ pars=default_pars(pars);
 
 if isempty(w_ssqerr),
    if any(opts.isfit([14,15,16])), % enforce stability of variance if fmincon converged at an infeasible point
-      dlsl=DiscreteLinearSystem_lib();
+      dlsl=DiscreteTimeVariantLinearSystem_lib();
 
       B=[pars.bf;pars.bs];
       A=diag([pars.af;pars.as]);
@@ -332,7 +363,7 @@ ceq=[];
 
 c=[];
 
-dlsl=DiscreteLinearSystem_lib();
+dlsl=DiscreteTimeVariantLinearSystem_lib();
 if any(opts.isfit(3:6)),
    a=diag([pars.af;pars.as])-repmat([pars.bf;pars.bs],1,2);
    %characteristic polynom:
@@ -450,53 +481,112 @@ for k=1:length(opts.parnames),
    end;
 end;
 pars=default_pars(pars);
-Vrx=[pars.Vrx11,pars.Vrx12;pars.Vrx12,pars.Vrx22];
-
-x0=[pars.xf_start;pars.xs_start];
-cva_rx=[pars.cva_xf;pars.cva_xs];
-B=[pars.bf;pars.bs];
-if opts.Data.InputType==1,
-   A=diag([pars.af;pars.as]);
-else
-   A=diag([pars.af;pars.as])-repmat(B,1,2);
-end;
-C=[1,1];
 
 
-fopts.vgain.EC=pars.vgain_EC;
-fopts.vgain.CL=pars.vgain_CL;
-fopts.InputType=opts.Data.InputType;
-fopts.signed_EDPMN=opts.Data.signed_EDPMN;
-fopts.Abreak=diag([pars.af;pars.as].^pars.abreak_exponent);
+% Vrx=[pars.Vrx11,pars.Vrx12;pars.Vrx12,pars.Vrx22];
+% 
+% x0=[pars.xf_start;pars.xs_start];
+% cva_rx=[pars.cva_xf;pars.cva_xs];
+% B=[pars.bf;pars.bs];
+% if opts.Data.InputType==1,
+%    A=diag([pars.af;pars.as]);
+% else
+%    A=diag([pars.af;pars.as])-repmat(B,1,2);
+% end;
+% C=[1,1];
 
-dlsl=DiscreteLinearSystem_lib();
+
+% fopts.vgain.EC=pars.vgain_EC;
+% fopts.vgain.CL=pars.vgain_CL;
+% fopts.InputType=opts.Data.InputType;
+% fopts.signed_EDPMN=opts.Data.signed_EDPMN;
+% fopts.Abreak=diag([pars.af;pars.as].^pars.abreak_exponent);
+
+if ~isempty(opts.Data.Vrx0)
+   Vrx0=opts.Data.Vrx0;
+end
+Data_i=opts.Data;
+
+dlsl=DiscreteTimeVariantLinearSystem_lib();
 incomplete_negLogLike=0;
 w_ssqerr=0;
-for data_i=1:size(opts.Data.TrialType,2),
-   if ~isempty(opts.Data.Vrx0),
-      Vrx0=opts.Data.Vrx0;
-   elseif data_i==1 || opts.Data.TrialType(1,data_i)~=opts.Data.TrialType(1,data_i-1) || opts.Data.u(1,data_i)~=opts.Data.u(1,data_i-1),
-      Vrx0=dlsl.compute_asymptotic_start_Vrx(pars,opts.Data,data_i,A,B,C,Vrx,cva_rx);
-
-      if isinf(Vrx0(1,1)),
-         Vrx0=zeros(size(Vrx0));
+for data_i=1:size(opts.Data.TrialType,2)
+   Data_i.u=opts.Data.u(:,data_i);
+   Data_i.error_clamp=opts.Data.error_clamp(:,data_i);
+   Data_i.y=opts.Data.y(:,data_i);          % For mk_TimeVariantSystem, Data_i.y, Data_i.u, and Data_i.error_clamp are relevant only for inp_tmp.
+                                            % The actual inp is computed below in every loop (see below)
+   Data_i.TrialType=opts.Data.TrialType(:,data_i);
+   Data_i.n_break=opts.Data.n_break(:,data_i);
+   Data_i.StimulusClass=opts.Data.StimulusClass(:,data_i);
+      
+   
+   % compute the time variant system parameters: (A,B,C,Gv,Gr) and the initial state variance Vx0
+   if data_i==1 || any(any([Data_i.TrialType,Data_i.n_break,Data_i.StimulusClass]~= ...
+          [opts.Data.TrialType(:,data_i-1),opts.Data.n_break(:,data_i-1),opts.Data.StimulusClass(:,data_i-1)])) ...
+         || opts.Data.u(1,data_i)~=opts.Data.u(1,data_i-1) ...
+         || (opts.InputType==1 && opts.Data.y(1,data_i)~=opts.Data.y(1,data_i-1))
+      [A,B,C,Gv,Gr,inp_tmp,x0,Vrx,cva_rx,Vry,cva_ry,VryEC]=dlsl.mk_TimeVariantSystem(Data_i,pars);
+      if isfield(opts.Data,'x0')
+         x0=opts.Data.x0;
+      end
+      if isempty(opts.Data.Vrx0),
+         Vx0=dlsl.compute_asymptotic_start_Vrx(pars,Data_i,1,A(:,:,1),B(:,:,1),C(:,:,1),Vrx,cva_rx);
+      end
+      
+      if isinf(Vx0(1,1)),
+         Vx0=zeros(size(Vx0));
       end;
    end;
    
-   fopts.n_break=opts.Data.n_break(:,data_i);
-   fopts.error_clamp=opts.Data.error_clamp(:,data_i);
-   fopts.TrialType=opts.Data.TrialType(:,data_i);
+   % **** compute inp: ***
+   comp_inp=(data_i==1);
+   if Data_i.InputType==1
+      if ~comp_inp
+         tmp1=[Data_i.TrialType,Data_i.u,Data_i.y,Data_i.error_clamp];
+         tmp2=[opts.Data.TrialType(:,data_i-1),opts.Data.u(:,data_i-1),opts.Data.y(:,data_i-1),opts.Data.error_clamp(:,data_i-1)];
+         comp_inp=(sum(sum(isnan(tmp1)))~=sum(sum(isnan(tmp2))));
+      end
+      if ~comp_inp
+         tmp=tmp1-tmp2;
+         comp_inp=any(tmp(~isnan(tmp))~=0);
+      end
+      if comp_inp
+         inp=Data_i.u-Data_i.y;
+         ia=(1:length(inp))';
+         iv=~isnan(inp);
+         inp=interp1(ia(iv),inp(iv),ia,'linear','extrap');
+         i_EC=any(repmat(Data_i.TrialType,1,2)==repmat([1 3],N,1),2);
+         inp(i_EC,:)=Data_i.error_clamp(i_EC,:);
+      end
+   else
+      if comp_inp || any(any([Data_i.TrialType,Data_i.u,Data_i.error_clamp] ...
+                            -[opts.Data.TrialType(:,data_i-1),opts.Data.u(:,data_i-1),opts.Data.error_clamp(:,data_i-1)]))
+         inp=Data_i.u;
+         i_EC=any(repmat(Data_i.TrialType,1,2)==repmat([1 3],length(inp),1),2);
+         inp(i_EC,:)=Data_i.error_clamp(i_EC,:);
+      end
+   end
+   
+   
    y_valid=opts.Data.y(:,data_i);
-   u_valid=opts.Data.u(:,data_i);
    
    first_isvalid=find(~isnan(y_valid),1,'first');
-   fopts.n_break=fopts.n_break(first_isvalid:end);
-   fopts.error_clamp=fopts.error_clamp(first_isvalid:end);
-   fopts.TrialType=fopts.TrialType(first_isvalid:end);
-   y_valid=y_valid(first_isvalid:end);
-   u_valid=u_valid(first_isvalid:end);
    
-   [incomplete_negLogLike_i,w_ssqerr_i]=dlsl.incomplete_negLogLike_fun_new(A,B,C,y_valid,u_valid,x0,Vrx0,Vrx,cva_rx,pars.Vry,pars.cva_ry,pars.VryEC,fopts);
+   Data_i.TrialType=Data_i.TrialType(first_isvalid:end);
+   Data_i.TrialType(Data_i.TrialType==2)=0;
+   Data_i.TrialType(Data_i.TrialType==3)=1;
+
+   
+   inp_valid=inp(first_isvalid:end);
+   y_valid=y_valid(first_isvalid:end);
+   A_valid=A(:,:,first_isvalid:end);
+   B_valid=B(:,:,first_isvalid:end);
+   C_valid=C(:,:,first_isvalid:end);
+   Gv_valid=Gv(:,first_isvalid:end);
+   Gr_valid=Gr(:,:,first_isvalid:end);
+   
+   [incomplete_negLogLike_i,w_ssqerr_i]=dlsl.incomplete_negLogLike_fun_new(A_valid,B_valid,C_valid ...
+          ,Gv_valid,Gr_valid,y_valid,inp_valid,x0,Vx0,Vrx,cva_rx,pars.Vry,pars.cva_ry,pars.VryEC,Data_i);
    incomplete_negLogLike=incomplete_negLogLike+incomplete_negLogLike_i;
    w_ssqerr=w_ssqerr+w_ssqerr_i;
    %logDet=logDet+2*(incomplete_negLogLike_i - w_ssqerr_i - sum(~isnan(y_valid))/2*log(2*pi));

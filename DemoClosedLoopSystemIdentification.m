@@ -65,6 +65,7 @@ do_fit.bs=true;
 do_fit.Vry=true;
 do_fit.cva_xf=true;
 do_fit.cva_xs=false;
+do_fit.cva_ry=false;
 do_fit.Vrx11=true;
 do_fit.Vrx22=true;
 do_fit.Vrx12=false;
@@ -78,6 +79,18 @@ do_fit.vgain_EC=true;
 Data.constraint_options.fix_vgainECMinusCL=1;  % set this to NaN to disable the constraint
 Data.constraint_options.Vrx11EqVrx22=true;     % set this to NaN to disable the constraint
 
+
+if true                                        % Set this to true to test multi-target adaptation.
+                                               %   All trials will be assigned to a single
+                                               %   stimulus class if ~isfield(Data,'StimulusClass')
+   Data.StimulusClass=ones(length(Data.y),1);
+   Data.StimulusClass(2:3:length(Data.y))=2;
+   Data.StimulusClass(3:3:length(Data.y))=3;
+   Data.TransferMatrix=[1.0,0.5,0.2 ...
+      ;0.5,1.0,0.5 ...
+      ;0.2,0.5,1.0];
+end
+
 Data.Vrx0=[];     % if isempty(Data.Vrx0), the initial value of the state variance will be computed as the stationary solution
 
 
@@ -89,68 +102,148 @@ ssfit_options.no_fit=false;
 
 
 
-dlsl=DiscreteLinearSystem_lib();
+dlsl=DiscreteTimeVariantLinearSystem_lib();
+
+
+
+
 
 % simulate the responses:
-B=[pars.bf;pars.bs];
-model_order=length(B);
-C=ones(1,model_order);
-A=diag([pars.af;pars.as])-B*C;
-x0=[pars.xf_start;pars.xs_start];
-Vrx=[pars.Vrx11,pars.Vrx12;pars.Vrx12,pars.Vrx22];
-cva_rx=[pars.cva_xf;pars.cva_xs];
-fitted_x_state0_=[pars.xf_start;pars.xs_start];
-if ~isempty(Data.Vrx0),
+
+[A,B,C,Gv,Gr,inp,x0,Vrx,cva_rx,Vry,cva_ry,VryEC]=dlsl.mk_TimeVariantSystem(Data,pars);
+if ~isempty(Data.Vrx0)
    Vrx0=Data.Vrx0;
 else
-   isErrorClamp_inf=(any(Data.TrialType(1)==[1 3]));
-   if Data.InputType==1,
-      u_inf=0;
-      A_inf=A+B*C;
-   else
-      if any(Data.TrialType(1)==[1 3]),
-         u_inf=0;
-         A_inf=A+B*C;
-      else
-         u_inf=Data.u(1);
-         A_inf=A;
-      end;
-   end;
-   [tmp,Vrx0]=dlsl.compute_asymptotic_Autocov_y(u_inf,A_inf    ,B,C,pars.vgain_CL,Vrx,cva_rx,pars.Vry,0,pars.cva_ry,isErrorClamp_inf);
-end;
+   Vx0=dlsl.compute_asymptotic_start_Vrx(pars,Data,1,A(:,:,1),B(:,:,1),C(:,:,1),Vrx,cva_rx);
+end
+if isfield(Data,'x0')
+   x0=Data.x0;
+end
 
-fopts.vgain.EC=pars.vgain_EC;
-fopts.vgain.CL=pars.vgain_CL;
-fopts.TrialType=Data.TrialType;
-fopts.Abreak=diag([pars.af;pars.as].^pars.abreak_exponent);
-[x_sim,y_sim]=dlsl.sim_noisy_system(A,B,C,Data.u,x0,zeros(model_order),zeros(model_order),zeros(model_order,1),0,0,NaN,1,fopts);
-x_s1=x_sim(1:end-1,:);
-y_s1=y_sim(1:end-1);
+fopts=Data;
+fopts.TrialType(fopts.TrialType==2)=0;
+fopts.TrialType(fopts.TrialType==3)=1;
+[x_s,y_s]=dlsl.sim_noisy_system(A,B,C,Gv,Gr,inp,x0,zeros(size(A,1)),zeros(size(A,1)),zeros(size(A,1),1),0,0,NaN,1,fopts);
+
 
 % ** compute the variance/covariance matrix of the observation:
-[x_hat,y_hat,cv_expected]=dlsl.MeanCovMatrix_DiscretLinearSystem(A,B,C,Data.u,x0,Vrx0,Vrx,cva_rx,pars.Vry,pars.cva_ry,NaN,fopts);
-cv_expected=cv_expected(1:end-1,1:end-1);
+[x_hat,y_hat,cv_expected]=dlsl.MeanCovMatrix_DiscretLinearSystem(A,B,C,Gv,Gr,inp,x0,Vx0,Vrx,cva_rx,Vry,cva_ry,VryEC,fopts);
 v_expected=diag(cv_expected);
+         
 
-%
+%% ** plot the results: **********************************************************************
+
 FS=12;
-figure(100);
-set(gcf,'Position',[25   186   725   467]);
+figure(101);
 clf
-hold on
-set(gca,'Linewidth',1.5,'Fontsize',FS);
-t=(0:length(Data.u)-1)';
-ph=plot(t,Data.y,'+b','Linewidth',1.5);
-ph(4)=plot(t,x_s1(:,1),'-m','Linewidth',1.5);
-ph(3)=plot(t,x_s1(:,2),'-c','Linewidth',1.5);
-plot(t,y_s1-v_expected.^0.5,'--r');
-plot(t,y_s1+v_expected.^0.5,'--r');
-ph(2)=plot(t,y_s1,'-r','Linewidth',1.5);
-utmp=Data.u;
-utmp(Data.TrialType==1 | Data.TrialType==3)=NaN;
-ph(5)=plot(t,utmp,'-k','Linewidth',1.5);
+set(gcf,'Position',[25   186   725   467]);
 
-lh=legend(ph,'data','model M4','slow','fast','visuomotor distorsion');
-set(lh,'Position',[0.6988    0.7250    0.2579    0.2371]);
-set(get(gca,'XLabel'),'string','trial #','Fontsize',FS);
-set(get(gca,'YLabel'),'string','relative pointing direction (deg)','Fontsize',FS);
+
+
+
+symb='+os<';   % leftward, rightward
+cols0=[0,0,1 ...  % symbol
+   ;1,0,1 ...  % fast
+   ;0,1,1 ...  % slow
+   ;1,0,0 ...  % model
+   ];
+
+is_StimulusClassFit=isfield(Data,'StimulusClass');
+if is_StimulusClassFit
+   AllSTClasses=unique(Data.StimulusClass);
+   NTSClasses=length(AllSTClasses);
+else
+   NTSClasses=1;
+end
+
+
+
+
+for stim_class=1:NTSClasses
+   subplot(NTSClasses,1,stim_class);
+   hold on
+   set(gca,'Linewidth',1.5,'Fontsize',FS);
+   
+   if stim_class==1
+      cols=cols0;
+   else
+      cols=0.7*cols;
+   end
+   
+   trial_index=(1:length(Data.y))';    % trial numbers corresponding to the elements of Data.y
+                                       % In case that different models are fitted to
+                                       % distinct subsets of trials, trial_index by be
+                                       % discontinuous (i.e., ~all(diff(trial_index)==1)  )
+   if ~is_StimulusClassFit
+      ind_STClassTrial=(1:size(y_s,1))';% index of the respective stimulus class in Data.y
+   else
+      ind_STClassTrial=find(Data.StimulusClass==AllSTClasses(stim_class));
+      trial_index=trial_index(ind_STClassTrial);
+   end
+   x_s_class=x_s(ind_STClassTrial,:);
+   y_s_class=y_s(ind_STClassTrial);
+   v_expected_class=v_expected(ind_STClassTrial);
+   
+   t=(trial_index(1):trial_index(end))'-1;
+   
+   plt_tmp=NaN(length(t),1);
+   plt_tmp(trial_index-trial_index(1)+1)=Data.y(ind_STClassTrial);
+   ph=plot(t,plt_tmp,[symb(stim_class),'b'],'Linewidth',1.5);
+   set(ph,'MarkerEdgeColor',cols(1,:));
+   
+   if is_StimulusClassFit
+      if pars.bf==0 && pars.Vrx11==0 && pars.Vrx12==0
+         plt_tmp=zeros(length(t),1);
+      else
+         plt_tmp=interp1(trial_index-1,x_s_class(:,(stim_class-1)*2+1),t,'linear','extrap');
+      end
+   else
+      plt_tmp=interp1(trial_index-1,x_s_class(:,1),t,'linear','extrap');
+   end
+   ph(4)=plot(t,plt_tmp,'-m','Linewidth',1.5);
+   set(ph(4),'Color',cols(2,:));
+   
+   if is_StimulusClassFit
+      if pars.bf==0 && pars.Vrx11==0 && pars.Vrx12==0
+         plt_tmp=interp1(trial_index-1,x_s_class(:,stim_class),t,'linear','extrap');
+      else
+         plt_tmp=interp1(trial_index-1,x_s_class(:,(stim_class-1)*2+2),t,'linear','extrap');
+      end
+   else
+      plt_tmp=interp1(trial_index-1,x_s_class(:,2),t,'linear','extrap');
+   end
+   ph(3)=plot(t,plt_tmp,'-c','Linewidth',1.5);
+   set(ph(3),'Color',cols(3,:));
+   
+   plt_tmp=interp1(trial_index-1,y_s_class-v_expected_class.^0.5,t,'linear','extrap');
+   ph_tmp=plot(t,plt_tmp,'--r');
+   set(ph_tmp,'Color',cols(4,:));
+   
+   plt_tmp=interp1(trial_index-1,y_s_class+v_expected_class.^0.5,t,'linear','extrap');
+   ph_tmp=plot(t,plt_tmp,'--r');
+   set(ph_tmp,'Color',cols(4,:));
+   
+   plt_tmp=interp1(trial_index-1,y_s_class,t,'linear','extrap');
+   ph(2)=plot(t,plt_tmp,'-r','Linewidth',1.5);
+   set(ph(2),'Color',cols(4,:));
+   
+   plt_tmp=Data.u(ind_STClassTrial);
+   plt_isnan=double(Data.TrialType(ind_STClassTrial)==1 | Data.TrialType(ind_STClassTrial)==3);
+   plt_tmp=interp1(trial_index-1,plt_tmp,t,'linear','extrap');
+   plt_isnan=(interp1(trial_index-1,plt_isnan,t,'linear','extrap')>1e-6);
+   plt_tmp(plt_isnan)=NaN;
+   ph(5)=plot(t,plt_tmp,'-k','Linewidth',1.5);
+   
+   if stim_class==NTSClasses
+      lh=legend(ph,'data','model M4','slow','fast','visuomotor distorsion');
+      set(lh,'Position',[0.6988    0.7250    0.2579    0.2371]);
+      set(get(gca,'XLabel'),'string','trial #','Fontsize',FS);
+   end
+   set(get(gca,'YLabel'),'string','relative pointing direction (deg)','Fontsize',FS);
+   
+end
+
+
+
+
+
